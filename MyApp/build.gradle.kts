@@ -11,14 +11,17 @@ repositories {
 
 dependencies {
     testImplementation(kotlin("test"))
-    implementation(kotlin("stdlib"))
+
     implementation("com.kohlschutter.junixsocket:junixsocket-common:2.10.1")
     implementation("com.kohlschutter.junixsocket:junixsocket-core:2.10.1")
+    testImplementation("io.mockk:mockk:1.13.13")
 }
 
 tasks.test {
     useJUnitPlatform()
+    jvmArgs(
+        "-XX:+EnableDynamicAgentLoading",
+        "-Djdk.instrumeent.traceUsage"
+    )
 }
-kotlin {
-    jvmToolchain(21)
-}
+

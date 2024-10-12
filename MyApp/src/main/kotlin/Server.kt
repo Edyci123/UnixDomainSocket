@@ -5,28 +5,96 @@ import java.io.File
 import java.io.IOException
 
 class Server(private val socketPath: String, private val filePath: String) {
+    private lateinit var server: AFUNIXServerSocket
+    @Volatile private var running = true
 
+    init {
+        val osName = System.getProperty("os.name").lowercase()
+
+        val maxPathLength = when {
+            osName.contains("win") -> 260    // windows
+            osName.contains("mac") -> 1024   // macos
+            osName.contains("nix") || osName.contains("nux") -> 4096  // linux
+            else -> throw IllegalArgumentException("Unsupported operating system: $osName")
+        }
+
+        val socketFile = File(socketPath)
+
+        val absoluteSocketPath = socketFile.absolutePath
+        if (absoluteSocketPath.length > maxPathLength) {
+            throw IllegalArgumentException("The absolute socket path exceeds the maximum allowed length for $osName " +
+                    "($maxPathLength characters). Provided path: $absoluteSocketPath")
+        }
+
+        val parentDir = socketFile.parentFile
+        if (parentDir != null && !parentDir.exists()) {
+            throw IllegalArgumentException("The parent directory for the socket path does not exist: ${parentDir.absolutePath}")
+        }
+
+        if (socketFile.exists() && socketFile.isDirectory) {
+            throw IllegalArgumentException("The specified socket path is a directory: ${socketFile.absolutePath}")
+        }
+
+        val dataFile = File(filePath)
+
+        val dataFileParentDir = dataFile.parentFile
+        if (dataFileParentDir != null && !dataFileParentDir.exists()) {
+            try {
+                if (!dataFileParentDir.mkdirs()) {
+                    throw IOException("Failed to create the directory: ${dataFileParentDir.absolutePath}")
+                }
+            } catch (e: IOException) {
+                throw IOException("Could not create the directory for the file at $filePath. Please check the permissions.")
+            }
+        }
+
+        if (!dataFile.exists()) {
+            try {
+                dataFile.createNewFile()
+            } catch (e: IOException) {
+                throw IOException("Could not create the file at $filePath. Please check the permissions.")
+            }
+        }
+
+        if (!dataFile.canWrite()) {
+            throw IllegalArgumentException("The file at $filePath is not writable. Please check the file permissions.")
+        }
+
+        if (dataFile.isDirectory) {
+            throw IllegalArgumentException("The specified file path is a directory: ${dataFile.absolutePath}")
+        }
+    }
 
     fun start() {
         val socketFile = File(socketPath)
         if (socketFile.exists()) socketFile.delete()
 
-        val server = AFUNIXServerSocket.newInstance()
+        server = AFUNIXServerSocket.newInstance()
         server.bind(AFUNIXSocketAddress.of(socketFile))
 
         println("Server started, listening on ${socketFile.absolutePath}")
 
-        while (true) {
+        while (running) {
             val clientSocket = server.accept()
             try {
                 processRequest(clientSocket, filePath)
             } catch (e: Exception) {
-                println(e.stackTrace)
+                sendError(clientSocket, e.message.toString())
+                if (!running) {
+                    println("Server stopped.")
+                    break
+                } else {
+                    e.printStackTrace()
+                }
             } finally {
                 clientSocket.close()
             }
         }
+    }
 
+    fun stop() {
+        running = false
+        server.close()
     }
 
     private fun processRequest(clientSocket: AFUNIXSocket, filePath: String) {
@@ -39,13 +107,11 @@ class Server(private val socketPath: String, private val filePath: String) {
             MessageType.CLEAR -> handleClear(clientSocket, req.contentLength, filePath)
             MessageType.PING -> handlePing(clientSocket, req.contentLength)
         }
-
-
     }
 
     private fun handleOk(clientSocket: AFUNIXSocket, contentLength: Int) {
         if (contentLength > 0) {
-            sendError(clientSocket, "Content length must be 0!")
+            sendError(clientSocket, "Content must be empty!")
             return
         }
     }
@@ -92,5 +158,4 @@ class Server(private val socketPath: String, private val filePath: String) {
         val outputStream = clientSocket.outputStream
         Response.writeResponse(outputStream, MessageType.ERROR, err)
     }
-
 }

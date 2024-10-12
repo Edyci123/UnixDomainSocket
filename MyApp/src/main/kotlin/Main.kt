@@ -6,6 +6,14 @@ fun main(args: Array<String>) {
     val socketPath = args[0]
     val filePath = args[1]
 
-    Server(socketPath, filePath).start()
+    val server = Server(socketPath, filePath)
+
+    Runtime.getRuntime().addShutdownHook(Thread {
+        println("Shutdown hook triggered, stopping server...")
+        server.stop()
+        // TODO solve error after exiting
+    })
+
+    server.start()
 
 }

@@ -4,19 +4,22 @@ class Response {
 
     companion object {
         fun writeResponse(outputStream: AFOutputStream, type: Int, message: String) {
-            outputStream.write(type)
-            for (i in 1..3) outputStream.write(0x0)
-            outputStream.write(message.length)
-            outputStream.write(message.toByteArray())
+            var request = byteArrayOf(type.toByte(), 0x0, 0x0, 0x0)
+            request += Utils.toByteArray(message.length)
+            request += message.toByteArray()
+            outputStream.write(request)
             outputStream.flush()
         }
 
         fun writeResponse(outputStream: AFOutputStream, type: Int) {
-            outputStream.write(type)
-            for (i in 1..3) outputStream.write(0x0)
-            outputStream.write(0x0)
+            var request = byteArrayOf(type.toByte(), 0x0, 0x0, 0x0)
+            request += Utils.toByteArray(0)
+            outputStream.write(request)
             outputStream.flush()
+            println("Done writing")
         }
+
+
     }
 
 }
