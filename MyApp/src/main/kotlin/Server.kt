@@ -3,10 +3,13 @@ import org.newsclub.net.unix.AFUNIXSocket
 import org.newsclub.net.unix.AFUNIXSocketAddress
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class Server(private val socketPath: String, private val filePath: String) {
     private lateinit var server: AFUNIXServerSocket
     @Volatile private var running = true
+    private val threadPool: ExecutorService = Executors.newCachedThreadPool()
 
     init {
         val osName = System.getProperty("os.name").lowercase()
@@ -76,18 +79,8 @@ class Server(private val socketPath: String, private val filePath: String) {
 
         while (running) {
             val clientSocket = server.accept()
-            try {
-                processRequest(clientSocket, filePath)
-            } catch (e: Exception) {
-                sendError(clientSocket, e.message.toString())
-                if (!running) {
-                    println("Server stopped.")
-                    break
-                } else {
-                    e.printStackTrace()
-                }
-            } finally {
-                clientSocket.close()
+            threadPool.submit {
+                handleClient(clientSocket)
             }
         }
     }
@@ -95,6 +88,18 @@ class Server(private val socketPath: String, private val filePath: String) {
     fun stop() {
         running = false
         server.close()
+        threadPool.shutdown()
+    }
+
+    private fun handleClient(clientSocket: AFUNIXSocket) {
+        try {
+            processRequest(clientSocket, filePath)
+        } catch (e: Exception) {
+            sendError(clientSocket, e.message.toString())
+            e.printStackTrace()
+        } finally {
+            clientSocket.close()
+        }
     }
 
     private fun processRequest(clientSocket: AFUNIXSocket, filePath: String) {

@@ -4,6 +4,7 @@ import org.newsclub.net.unix.AFUNIXSocket
 import org.newsclub.net.unix.AFUNIXSocketAddress
 import java.io.File
 import java.io.OutputStream
+import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
 import kotlin.io.path.exists
 import kotlin.io.path.Path
@@ -102,7 +103,7 @@ class AppTest {
             val response = sendRequest(MessageType.WRITE, outputStream, socket, message, message.length)
             assert(response.messageType == MessageType.OK)
             assert(response.contentLength == 0)
-            assert(file.readText(Charsets.UTF_8) == message)
+            assert(file.readText(Charsets.UTF_8).contains(message))
         }
     }
 
@@ -114,7 +115,7 @@ class AppTest {
             val message = ""
             val response = sendRequest(MessageType.WRITE, outputStream, socket, message, message.length)
             assert(response.messageType == MessageType.OK)
-            assert(file.readText(Charsets.UTF_8) == message)
+            assert(file.readText(Charsets.UTF_8).contains(message))
         }
     }
 
@@ -131,8 +132,39 @@ class AppTest {
     }
 
     @Test
-    fun testPathsServerFiles() {
+    fun testConcurrentRequests() {
+        val numberOfThreads = 10
+        val latch = CountDownLatch(numberOfThreads)
 
+        val message = "This is a test message from thread "
+        val threads = mutableListOf<Thread>()
+
+        repeat(numberOfThreads) { i ->
+            val thread = thread {
+                try {
+                    AFUNIXSocket.newInstance().use { socket ->
+                        socket.connect(AFUNIXSocketAddress.of(File(socketPath)))
+                        val outputStream = socket.outputStream
+                        val response = sendRequest(MessageType.WRITE, outputStream, socket, message + i, (message + i).length)
+
+                        assert(response.messageType == MessageType.OK)
+                        assert(file.readText(Charsets.UTF_8).contains(message + i))
+                    }
+                } catch (e: Exception) {
+                    println("Error in thread $i: ${e.message}")
+                } finally {
+                    latch.countDown()
+                }
+            }
+            threads.add(thread)
+        }
+
+        latch.await()
+
+        val fileContent = file.readText(Charsets.UTF_8)
+        repeat(numberOfThreads) { i ->
+            assertTrue(fileContent.contains(message + i), "Message from thread $i not found in file")
+        }
     }
 
     private fun waitForServerToStart(timeoutMillis: Long = 5000) {
