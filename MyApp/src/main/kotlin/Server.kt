@@ -1,28 +1,26 @@
+import kotlinx.coroutines.*
 import org.newsclub.net.unix.AFUNIXServerSocket
 import org.newsclub.net.unix.AFUNIXSocket
 import org.newsclub.net.unix.AFUNIXSocketAddress
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 class Server(private val socketPath: String, private val filePath: String) {
     private lateinit var server: AFUNIXServerSocket
     @Volatile private var running = true
-    private val threadPool: ExecutorService = Executors.newCachedThreadPool()
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     init {
         val osName = System.getProperty("os.name").lowercase()
 
         val maxPathLength = when {
-            osName.contains("win") -> 260    // windows
-            osName.contains("mac") -> 1024   // macos
-            osName.contains("nix") || osName.contains("nux") -> 4096  // linux
+            osName.contains("win") -> 260    // Windows
+            osName.contains("mac") -> 1024   // macOS
+            osName.contains("nix") || osName.contains("nux") -> 4096  // Linux
             else -> throw IllegalArgumentException("Unsupported operating system: $osName")
         }
 
         val socketFile = File(socketPath)
-
         val absoluteSocketPath = socketFile.absolutePath
         if (absoluteSocketPath.length > maxPathLength) {
             throw IllegalArgumentException("The absolute socket path exceeds the maximum allowed length for $osName " +
@@ -39,7 +37,6 @@ class Server(private val socketPath: String, private val filePath: String) {
         }
 
         val dataFile = File(filePath)
-
         val dataFileParentDir = dataFile.parentFile
         if (dataFileParentDir != null && !dataFileParentDir.exists()) {
             try {
@@ -69,26 +66,39 @@ class Server(private val socketPath: String, private val filePath: String) {
     }
 
     fun start() {
-        val socketFile = File(socketPath)
-        if (socketFile.exists()) socketFile.delete()
+        try {
+            val socketFile = File(socketPath)
+            if (socketFile.exists()) socketFile.delete()  // Delete any existing socket file
 
-        server = AFUNIXServerSocket.newInstance()
-        server.bind(AFUNIXSocketAddress.of(socketFile))
+            server = AFUNIXServerSocket.newInstance()
+            server.bind(AFUNIXSocketAddress.of(socketFile))
+            println("Server started, listening on ${socketFile.absolutePath}")
 
-        println("Server started, listening on ${socketFile.absolutePath}")
-
-        while (running) {
-            val clientSocket = server.accept()
-            threadPool.submit {
-                handleClient(clientSocket)
+            scope.launch {
+                while (running) {
+                    try {
+                        val clientSocket = server.accept()  // Accept a new client connection
+                        launch {
+                            handleClient(clientSocket)  // Handle each client in a separate coroutine
+                        }
+                    } catch (e: IOException) {
+                        if (running) {
+                            println("Error accepting client connection: ${e.message}")
+                            e.printStackTrace()
+                        }
+                    }
+                }
             }
+        } catch (e: Exception) {
+            println("Failed to start server: ${e.message}")
+            e.printStackTrace()
         }
     }
 
     fun stop() {
         running = false
         server.close()
-        threadPool.shutdown()
+        scope.cancel()  // Cancels all coroutines within this scope
     }
 
     private fun handleClient(clientSocket: AFUNIXSocket) {

@@ -15,6 +15,7 @@ dependencies {
     implementation("com.kohlschutter.junixsocket:junixsocket-common:2.10.1")
     implementation("com.kohlschutter.junixsocket:junixsocket-core:2.10.1")
     testImplementation("io.mockk:mockk:1.13.13")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }
 
 tasks.test {
